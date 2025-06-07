@@ -1,0 +1,253 @@
+import tkinter as tk
+from tkinter import ttk
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+from matplotlib.animation import FuncAnimation
+
+class DCMachineSimulator:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("DC Motor and Generator Visualizer")
+        
+        # Constants
+        self.pole_pairs = 2
+        self.conductors = 100
+        self.armature_length = 0.3  # meters
+        self.radius = 0.1  # meters
+        
+        # Variables
+        self.flux_density = tk.DoubleVar(value=0.5)  # Tesla
+        self.speed = tk.DoubleVar(value=10)  # rad/s
+        self.armature_current = tk.DoubleVar(value=2.0)  # Amps
+        self.mode = tk.StringVar(value="generator")  # or "motor"
+        
+        # Setup UI
+        self.setup_ui()
+        
+        # Animation
+        self.animation = None
+        self.setup_animation()
+        
+    def setup_ui(self):
+        # Create main frames
+        control_frame = ttk.LabelFrame(self.root, text="Controls", padding=10)
+        control_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        
+        visualization_frame = ttk.LabelFrame(self.root, text="Visualization", padding=10)
+        visualization_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+        
+        graph_frame = ttk.LabelFrame(self.root, text="EMF/Torque Graphs", padding=10)
+        graph_frame.grid(row=1, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
+        
+        # Control widgets
+        ttk.Label(control_frame, text="Machine Mode:").grid(row=0, column=0, sticky="w")
+        mode_combobox = ttk.Combobox(control_frame, textvariable=self.mode, 
+                                    values=["generator", "motor"], state="readonly")
+        mode_combobox.grid(row=0, column=1, sticky="ew")
+        mode_combobox.bind("<<ComboboxSelected>>", self.update_mode)
+        
+        ttk.Label(control_frame, text="Flux Density (T):").grid(row=1, column=0, sticky="w")
+        ttk.Scale(control_frame, from_=0.1, to=1.5, variable=self.flux_density, 
+                  command=self.update_parameters).grid(row=1, column=1, sticky="ew")
+        ttk.Label(control_frame, textvariable=self.flux_density).grid(row=1, column=2)
+        
+        ttk.Label(control_frame, text="Speed (rad/s):").grid(row=2, column=0, sticky="w")
+        ttk.Scale(control_frame, from_=1, to=50, variable=self.speed, 
+                  command=self.update_parameters).grid(row=2, column=1, sticky="ew")
+        ttk.Label(control_frame, textvariable=self.speed).grid(row=2, column=2)
+        
+        ttk.Label(control_frame, text="Current (A):").grid(row=3, column=0, sticky="w")
+        ttk.Scale(control_frame, from_=0.1, to=10, variable=self.armature_current, 
+                  command=self.update_parameters).grid(row=3, column=1, sticky="ew")
+        ttk.Label(control_frame, textvariable=self.armature_current).grid(row=3, column=2)
+        
+        # Equations display
+        self.equation_label = ttk.Label(control_frame, text="", font=('Courier', 10))
+        self.equation_label.grid(row=4, column=0, columnspan=3, pady=10)
+        
+        # Visualization canvas
+        self.figure = Figure(figsize=(6, 6), dpi=100)
+        self.ax = self.figure.add_subplot(111, projection='3d')
+        self.canvas = FigureCanvasTkAgg(self.figure, master=visualization_frame)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Graph canvas
+        self.graph_figure = Figure(figsize=(8, 4), dpi=100)
+        self.graph_ax1 = self.graph_figure.add_subplot(121)
+        self.graph_ax2 = self.graph_figure.add_subplot(122)
+        self.graph_canvas = FigureCanvasTkAgg(self.graph_figure, master=graph_frame)
+        self.graph_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Initial update
+        self.update_parameters()
+        self.update_graphs()
+        
+    def setup_animation(self):
+        # Clear previous animation if exists
+        if self.animation:
+            self.animation.event_source.stop()
+        
+        # Set up the animation
+        def update_frame(frame):
+            self.ax.clear()
+            theta = frame * np.pi / 180
+            self.draw_machine(theta)
+            
+        self.animation = FuncAnimation(self.figure, update_frame, frames=np.arange(0, 360, 5), 
+                                     interval=50, blit=False)
+        self.canvas.draw()
+    
+    def draw_machine(self, theta):
+        # Draw the basic armature
+        self.ax.clear()
+        
+        # Armature cylinder
+        z = np.linspace(0, self.armature_length, 10)
+        theta_cyl = np.linspace(0, 2*np.pi, 100)
+        theta_grid, z_grid = np.meshgrid(theta_cyl, z)
+        x_grid = self.radius * np.cos(theta_grid)
+        y_grid = self.radius * np.sin(theta_grid)
+        self.ax.plot_surface(x_grid, y_grid, z_grid, color='lightgray', alpha=0.5)
+        
+        # Draw poles (simplified as rectangles)
+        for i in range(self.pole_pairs * 2):
+            pole_theta = i * (2*np.pi / (self.pole_pairs * 2))
+            pole_x = 1.5 * self.radius * np.cos(pole_theta)
+            pole_y = 1.5 * self.radius * np.sin(pole_theta)
+            pole_z = self.armature_length / 2
+            
+            # Draw simplified pole
+            self.ax.plot([pole_x, pole_x*1.2], [pole_y, pole_y*1.2], [pole_z, pole_z], 
+                        color='red' if i % 2 == 0 else 'blue', linewidth=3)
+            
+            # Label poles
+            self.ax.text(pole_x*1.3, pole_y*1.3, pole_z, 'N' if i % 2 == 0 else 'S', 
+                        color='red' if i % 2 == 0 else 'blue')
+        
+        # Draw conductors (simplified)
+        for i in range(4):  # Only draw a few representative conductors
+            cond_theta = theta + i * (2*np.pi / 4)
+            x_start = self.radius * np.cos(cond_theta)
+            y_start = self.radius * np.sin(cond_theta)
+            x_end = self.radius * np.cos(cond_theta + np.pi)
+            y_end = self.radius * np.sin(cond_theta + np.pi)
+            
+            # Draw conductor
+            self.ax.plot([x_start, x_end], [y_start, y_end], [0, self.armature_length], 
+                         color='black', linewidth=1)
+            
+            # Draw velocity and force directions
+            if self.mode.get() == "generator":
+                # For generator: mechanical input, electrical output
+                v_dir = np.array([-y_start, x_start, 0])  # tangential velocity
+                emf_dir = np.array([y_start, -x_start, 0])  # Fleming's right hand rule
+                
+                # Scale arrows
+                v_dir = v_dir / np.linalg.norm(v_dir) * 0.2
+                emf_dir = emf_dir / np.linalg.norm(emf_dir) * 0.2
+                
+                # Draw arrows
+                self.ax.quiver(x_start, y_start, self.armature_length/2, 
+                              v_dir[0], v_dir[1], v_dir[2], color='green', label='Velocity')
+                self.ax.quiver(x_start, y_start, self.armature_length/2, 
+                              emf_dir[0], emf_dir[1], emf_dir[2], color='purple', label='EMF')
+            else:
+                # For motor: electrical input, mechanical output
+                current_dir = np.array([-y_start, x_start, 0])  # assume current direction
+                force_dir = np.array([y_start, -x_start, 0])  # Fleming's left hand rule
+                
+                # Scale arrows
+                current_dir = current_dir / np.linalg.norm(current_dir) * 0.2
+                force_dir = force_dir / np.linalg.norm(force_dir) * 0.2
+                
+                # Draw arrows
+                self.ax.quiver(x_start, y_start, self.armature_length/2, 
+                              current_dir[0], current_dir[1], current_dir[2], color='blue', label='Current')
+                self.ax.quiver(x_start, y_start, self.armature_length/2, 
+                              force_dir[0], force_dir[1], force_dir[2], color='red', label='Force')
+        
+        # Set view and labels
+        self.ax.set_xlim([-0.3, 0.3])
+        self.ax.set_ylim([-0.3, 0.3])
+        self.ax.set_zlim([0, self.armature_length])
+        self.ax.set_title(f"DC {self.mode.get().capitalize()} Visualization")
+        self.ax.set_xlabel('X')
+        self.ax.set_ylabel('Y')
+        self.ax.set_zlabel('Z')
+        self.ax.legend()
+        
+    def update_parameters(self, *args):
+        # Update equations display
+        if self.mode.get() == "generator":
+            emf = self.calculate_emf()
+            equation_text = (f"Generator Mode\n"
+                           f"EMF = B·l·v·N = {self.flux_density.get():.2f} × {self.armature_length:.2f} × "
+                           f"{self.speed.get()*self.radius:.2f} × {self.conductors}\n"
+                           f"EMF = {emf:.2f} V")
+        else:
+            torque = self.calculate_torque()
+            equation_text = (f"Motor Mode\n"
+                           f"Torque = B·l·I·N·r = {self.flux_density.get():.2f} × {self.armature_length:.2f} × "
+                           f"{self.armature_current.get():.2f} × {self.conductors} × {self.radius:.2f}\n"
+                           f"Torque = {torque:.2f} N·m")
+        
+        self.equation_label.config(text=equation_text)
+        self.update_graphs()
+        
+    def update_mode(self, *args):
+        self.update_parameters()
+        self.setup_animation()
+        
+    def calculate_emf(self):
+        # EMF = B * l * v * N
+        # where v = ω * r (tangential velocity)
+        return (self.flux_density.get() * self.armature_length * 
+                (self.speed.get() * self.radius) * self.conductors)
+    
+    def calculate_torque(self):
+        # Torque = B * l * I * N * r
+        return (self.flux_density.get() * self.armature_length * 
+                self.armature_current.get() * self.conductors * self.radius)
+    
+    def update_graphs(self):
+        # Clear previous graphs
+        self.graph_ax1.clear()
+        self.graph_ax2.clear()
+        
+        # Generate data for graphs
+        speeds = np.linspace(1, 50, 100)
+        emfs = (self.flux_density.get() * self.armature_length * 
+               (speeds * self.radius) * self.conductors)
+        
+        currents = np.linspace(0.1, 10, 100)
+        torques = (self.flux_density.get() * self.armature_length * 
+                  currents * self.conductors * self.radius)
+        
+        # Plot EMF vs Speed
+        self.graph_ax1.plot(speeds, emfs, label='EMF vs Speed')
+        self.graph_ax1.set_xlabel('Speed (rad/s)')
+        self.graph_ax1.set_ylabel('EMF (V)')
+        self.graph_ax1.set_title('Generator Characteristic')
+        self.graph_ax1.axvline(x=self.speed.get(), color='r', linestyle='--')
+        self.graph_ax1.axhline(y=self.calculate_emf(), color='r', linestyle='--')
+        self.graph_ax1.grid(True)
+        self.graph_ax1.legend()
+        
+        # Plot Torque vs Current
+        self.graph_ax2.plot(currents, torques, label='Torque vs Current')
+        self.graph_ax2.set_xlabel('Current (A)')
+        self.graph_ax2.set_ylabel('Torque (N·m)')
+        self.graph_ax2.set_title('Motor Characteristic')
+        self.graph_ax2.axvline(x=self.armature_current.get(), color='r', linestyle='--')
+        self.graph_ax2.axhline(y=self.calculate_torque(), color='r', linestyle='--')
+        self.graph_ax2.grid(True)
+        self.graph_ax2.legend()
+        
+        self.graph_canvas.draw()
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = DCMachineSimulator(root)
+    root.mainloop()
